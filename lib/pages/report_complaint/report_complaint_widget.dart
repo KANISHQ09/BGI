@@ -12,6 +12,7 @@ import '/index.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import 'report_complaint_model.dart';
@@ -43,6 +44,42 @@ class _ReportComplaintWidgetState extends State<ReportComplaintWidget> {
     _model.dispose();
 
     super.dispose();
+  }
+
+  Future<void> _pickAndDetectComplaintImage() async {
+    final image = await _model.imagePicker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 88,
+    );
+    if (image == null) {
+      return;
+    }
+
+    final bytes = await image.readAsBytes();
+    safeSetState(() {
+      _model.selectedComplaintImage = image;
+      _model.selectedComplaintImageBytes = bytes;
+      _model.isDetecting = true;
+      _model.detectionError = null;
+    });
+
+    try {
+      final result = await _model.detectionService.detect(image);
+      safeSetState(() {
+        _model.detectionResult = result;
+        _model.isDetecting = false;
+      });
+    } catch (error) {
+      safeSetState(() {
+        _model.isDetecting = false;
+        _model.detectionError = error.toString();
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Image detection failed: $error')),
+        );
+      }
+    }
   }
 
   @override
@@ -173,7 +210,9 @@ class _ReportComplaintWidgetState extends State<ReportComplaintWidget> {
                         ),
                         ClipRRect(
                           borderRadius: BorderRadius.circular(24),
-                          child: Container(
+                          child: GestureDetector(
+                            onTap: _pickAndDetectComplaintImage,
+                            child: Container(
                             height: 260,
                             decoration: BoxDecoration(
                               borderRadius: BorderRadius.circular(24),
@@ -186,13 +225,41 @@ class _ReportComplaintWidgetState extends State<ReportComplaintWidget> {
                             child: Stack(
                               alignment: AlignmentDirectional(-1, -1),
                               children: [
-                                CachedNetworkImage(
-                                  fadeInDuration: Duration(milliseconds: 0),
-                                  fadeOutDuration: Duration(milliseconds: 0),
-                                  imageUrl:
-                                      'https://dimg.dreamflow.cloud/v1/image/pothole%20on%20a%20city%20street%20with%20cracked%20asphalt',
-                                  fit: BoxFit.cover,
-                                  alignment: Alignment(0, 0),
+                                if (_model.selectedComplaintImageBytes != null)
+                                  Image.memory(
+                                    _model.selectedComplaintImageBytes!,
+                                    width: double.infinity,
+                                    height: double.infinity,
+                                    fit: BoxFit.cover,
+                                    alignment: Alignment(0, 0),
+                                  )
+                                else
+                                  CachedNetworkImage(
+                                    fadeInDuration: Duration(milliseconds: 0),
+                                    fadeOutDuration: Duration(milliseconds: 0),
+                                    imageUrl:
+                                        'https://dimg.dreamflow.cloud/v1/image/pothole%20on%20a%20city%20street%20with%20cracked%20asphalt',
+                                    fit: BoxFit.cover,
+                                    alignment: Alignment(0, 0),
+                                  ),
+                                Align(
+                                  alignment: AlignmentDirectional(1, -1),
+                                  child: Padding(
+                                    padding: EdgeInsets.all(12),
+                                    child: FlutterFlowIconButton(
+                                      borderRadius: 12,
+                                      buttonSize: 42,
+                                      fillColor:
+                                          FlutterFlowTheme.of(context).surface90,
+                                      icon: Icon(
+                                        Icons.add_a_photo_rounded,
+                                        color:
+                                            FlutterFlowTheme.of(context).primary,
+                                        size: 20,
+                                      ),
+                                      onPressed: _pickAndDetectComplaintImage,
+                                    ),
+                                  ),
                                 ),
                                 Align(
                                   alignment: AlignmentDirectional(0, 1),
@@ -253,12 +320,22 @@ class _ReportComplaintWidgetState extends State<ReportComplaintWidget> {
                                                                     () {}),
                                                             child:
                                                                 AiLabelWidget(
-                                                              label:
-                                                                  'AI ANALYSIS ACTIVE',
+                                                              label: _model
+                                                                      .isDetecting
+                                                                  ? 'AI ANALYZING'
+                                                                  : _model.detectionError !=
+                                                                          null
+                                                                      ? 'AI NEEDS BACKEND'
+                                                                      : 'AI ANALYSIS ACTIVE',
                                                             ),
                                                           ),
                                                           Text(
-                                                            '94% Confidence',
+                                                            _model.isDetecting
+                                                                ? 'Analyzing...'
+                                                                : _model
+                                                                        .detectionResult
+                                                                        ?.confidenceLabel ??
+                                                                    '94% Confidence',
                                                             style: FlutterFlowTheme
                                                                     .of(context)
                                                                 .labelSmall
@@ -332,7 +409,9 @@ class _ReportComplaintWidgetState extends State<ReportComplaintWidget> {
                                                                 ),
                                                                 label:
                                                                     'Category',
-                                                                value:
+                                                                value: _model
+                                                                        .detectionResult
+                                                                        ?.category ??
                                                                     'Road Damage',
                                                               ),
                                                             ),
@@ -358,7 +437,10 @@ class _ReportComplaintWidgetState extends State<ReportComplaintWidget> {
                                                                 ),
                                                                 label:
                                                                     'Severity',
-                                                                value: 'High',
+                                                                value: _model
+                                                                        .detectionResult
+                                                                        ?.severity ??
+                                                                    'High',
                                                               ),
                                                             ),
                                                           ),
@@ -379,6 +461,7 @@ class _ReportComplaintWidgetState extends State<ReportComplaintWidget> {
                                 ),
                               ],
                             ),
+                          ),
                           ),
                         ),
                       ].divide(SizedBox(height: 16)),
